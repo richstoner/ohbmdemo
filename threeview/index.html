@@ -1,0 +1,716 @@
+
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<title>MNI152 Mashup - OHBM</title>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+        <link rel="stylesheet" type="text/css" href="bootstrap/css/bootstrap.css">
+		<style>
+			body {
+				font-family: Monospace;
+				background-color: #000;
+				color: #fff;
+				margin: 0px;
+				overflow: hidden;
+			}
+			#info {
+				color: #002a80;
+				position: absolute;
+				top: 60px;
+                left: 10px;
+                width: 300px;
+				text-align: left;
+				z-index: 100;
+				display:block;
+			}
+			#info a, .button { color: #f00; font-weight: bold; text-decoration: underline; cursor: pointer }
+
+            #overlaydiv {
+				color: #000;
+				position: absolute;
+				bottom: 0px;
+                left: 10px;
+				width: 300px;
+                height: 150px;
+				text-align: left;
+				z-index: 100;
+				display:block;
+
+			}
+
+		</style>
+
+
+
+	</head>
+
+	<body>
+        <div id="info">
+            <h2 id="lastClick"></h2>
+		</div>
+
+        <div class="navbar navbar-inverse">
+            <div class="navbar-inner">
+                <div class="container" style="width: auto;">
+
+                    <a class="brand" href="#">MNI152 Visualization Demo</a>
+
+                    <div class="nav-collapse">
+
+                        <ul class="nav pull-right">
+
+                            <li><a href="#" id="showSelectedLabel">Show select label</a></li>
+
+                            <li class="divider-vertical"></li>
+                            <li class="dropdown">
+                                <a href="#" class="dropdown-toggle" data-toggle="dropdown">Controls <b class="caret"></b></a>
+                                <ul class="dropdown-menu">
+                                    <li><a href="#" id="loadOriginal">Load original </a></li>
+                                    <li><a href="#" id="loadThickness">Load thickness </a></li>
+                                    <li><a href="#" id="loadCurvature">Load curvature </a></li>
+                                    <li><a href="#" id="loadTravel">Load travel depth </a></li>
+
+
+                                    <li class="divider"></li>
+                                    <li><a href="#" id="loadLabelShapes">Load Label shape data</a></li>
+
+                                </ul>
+                            </li>
+                        </ul>
+                    </div><!-- /.nav-collapse -->
+                </div>
+            </div><!-- /navbar-inner -->
+        </div>
+
+        <div id="overlaydiv">
+            <h4>Highest expression, aggregated within MNI label</h4>
+            <div><h3><a href="http://human.brain-map.org/microarray/gene/show/1010531" target="_blank" id="genelink"><span id="genename"></span></a> : <span id="genevalue"></span></h3>
+            </div>
+
+
+        </div>
+
+
+        <script src="js/jquery-1.10.1.min.js"></script>
+        <script type="text/javascript" src="bootstrap/js/bootstrap.js"></script>
+		<script src="js/three.min.js"></script>
+		<script src="js/controls/TrackballControls.js"></script>
+		<script src="js/loaders/VTKLoader.js"></script>
+		<script src="js/Detector.js"></script>
+		<script src="js/libs/stats.min.js"></script>
+
+		<script>
+
+			if ( ! Detector.webgl ) Detector.addGetWebGLMessage();
+
+			var container, stats;
+            var particleMaterial;
+            var sphereMaterial;
+
+			var camera, scene, renderer, projector;
+			var cross;
+            var controls = [];
+			var objects = [];
+            var mouseX = 0, mouseY = 0;
+
+            var mapParams = [];
+
+            var sphere;
+			var windowWidth, windowHeight;
+            var vertexColorMaterial;
+            var wireframe_material;
+            var solidmaterial;
+            var cubeMaterial;
+            var views;
+
+            var geneLabels = [];
+            var geneData = [];
+
+            var bestLabel = [];
+            var bestValue = [];
+
+            var vertexmap = [];
+            var currentLabel;
+
+            loadLabelShapes();
+            loadVertexMap();
+            loadGeneData();
+            loadbestLabel();
+            loadbestvalue();
+
+			init();
+			animate();
+
+
+
+            Number.prototype.clamp = function(min, max) {
+                return Math.min(Math.max(this, min), max);
+            };
+
+
+            var getColor = function (inputval, offset)
+            {
+                 var fourValue = 4 * (inputval/offset);
+                 var red   = Math.min(fourValue - 1.5, -fourValue + 4.5);
+                 var green = Math.min(fourValue - 0.5, -fourValue + 3.5);
+                 var blue  = Math.min(fourValue + 0.5, -fourValue + 2.5);
+
+                return [ red.clamp(0,1), green.clamp(0,1), blue.clamp(0,1)];
+
+            };
+
+            function loadbestLabel(){
+
+                $.get('bestlabel.csv', function(data){
+
+                    if(data){
+                        $(bestLabel).empty()
+                    }
+                    bestLabel = data.split('\n');
+                    console.log(bestLabel)
+                })
+            }
+
+            function loadbestvalue(){
+
+                $.get('bestvalue.csv', function(data){
+
+                    if(data){
+                        $(bestValue).empty()
+                    }
+                    bestValue = data.split('\n');
+                })
+            }
+
+
+            function loadLabelShapes(){
+                $.get('label_shapes_noheader.csv', function(data){
+                    if(data){
+                        $(mapParams).empty();
+                    }
+                    var lines = data.split('\r');
+                    $(lines).each(function(line, val){
+//                        console.log(val.split(',').length);
+                        mapParams.push(val.split(','));
+                    });
+
+                    console.log('labels loaded')
+                })
+            }
+
+            function loadVertexMap(){
+
+                $.get('vertexlabels.csv', function(data){
+
+                    if(data){
+                        $(mapParams).empty();
+                    }
+
+                    var lines = data.split('\r');
+
+                    vertexmap = data.split('\r');
+
+//                    $(lines).each(function(line, val){
+////                        console.log(val.split(',').length);
+//                        mapParams.push(val.split(','));
+//                    });
+
+                    console.log('vertex labels loaded')
+                })
+            }
+
+//label	mean position	mean position in standard space	label: area: total	label: mean curvature: median (weighted)	label: mean curvature: median absolute deviation (weighted)	label: mean curvature: mean (weighted)	label: mean curvature: standard deviation (weighted)	label: mean curvature: skew (weighted)	label: mean curvature: kurtosis (weighted)	label: mean curvature: lower quartile (weighted)	label: mean curvature: upper quartile (weighted)	label: travel depth: median (weighted)	label: travel depth: median absolute deviation (weighted)	label: travel depth: mean (weighted)	label: travel depth: standard deviation (weighted)	label: travel depth: skew (weighted)	label: travel depth: kurtosis (weighted)	label: travel depth: lower quartile (weighted)	label: travel depth: upper quartile (weighted)	label: geodesic depth: median (weighted)	label: geodesic depth: median absolute deviation (weighted)	label: geodesic depth: mean (weighted)	label: geodesic depth: standard deviation (weighted)	label: geodesic depth: skew (weighted)	label: geodesic depth: kurtosis (weighted)	label: geodesic depth: lower quartile (weighted)	label: geodesic depth: upper quartile (weighted)	label: convexity: median (weighted)	label: convexity: median absolute deviation (weighted)	label: convexity: mean (weighted)	label: convexity: standard deviation (weighted)	label: convexity: skew (weighted)	label: convexity: kurtosis (weighted)	label: convexity: lower quartile (weighted)	label: convexity: upper quartile (weighted)	label: thickness: median (weighted)	label: thickness: median absolute deviation (weighted)	label: thickness: mean (weighted)	label: thickness: standard deviation (weighted)	label: thickness: skew (weighted)	label: thickness: kurtosis (weighted)	label: thickness: lower quartile (weighted)	label: thickness: upper quartile (weighted)	label spectrum	label spectrum (normalized)
+
+
+            function loadGeneData(){
+
+                $.get('gene_ids.txt', function(data){
+
+                    if(data){
+                        $(geneLabels).empty()
+                    }
+
+                    geneLabels = data.split('\n');
+
+                    console.log('gene labels loaded')
+                })
+
+            }
+
+
+
+
+            var loadFile = function(csvfile, baseval)
+            {
+
+//                var objtoremove = objects[0];
+//                    scene.remove(objtoremove);
+
+                var loader = new THREE.VTKLoader();
+				loader.addEventListener( 'load', function ( event ) {
+
+					var geometry = event.content;
+
+                    $.get(csvfile, function(data){
+
+
+
+                        var arraydat = data.split('\r')
+                        var color;
+
+                        for ( var i = 0; i < geometry.faces.length; i++ )
+                        {
+                            face = geometry.faces[ i ];
+                            var faceIndices = ['a', 'b', 'c', 'd'];
+
+                            // determine if face is a tri or a quad
+                            var numberOfSides = ( face instanceof THREE.Face3 ) ? 3 : 4;
+
+                            // assign color to each vertex of current face
+                            for( var j = 0; j < numberOfSides; j++ )
+                            {
+                                color = new THREE.Color( 0xffffff );
+                                var carray = getColor(arraydat[i], baseval)
+                                color.setRGB(carray[0], carray[1], carray[2]);
+                                face.vertexColors[ j ] = color;
+                                face.color = color;
+                            }
+                        }
+
+                        geometry.dynamic  = true;
+                        geometry.dirty = true;
+                        geometry.needsUpdate = true;
+
+
+                        var mesh = new THREE.Mesh( geometry, cubeMaterial );
+                        mesh.castShadow = true;
+                        sphere.material.opacity = 0.0;
+
+					    scene.add( mesh );
+                        objects.push(mesh);
+
+
+
+                    });
+				});
+
+				loader.load( "lh.pial.vtk" );
+            }
+
+
+			function init() {
+                wireframe_material = new THREE.MeshBasicMaterial( { color: 0xffffff, wireframe: true, wireframe_linewidth: 1,  transparent: true, opacity: 0.2} );
+                solidmaterial = new THREE.MeshLambertMaterial( { color:0xffffff, side: THREE.DoubleSide } );
+
+                sphereMaterial =
+                  new THREE.MeshLambertMaterial(
+                    {
+                      color: 0xFF4DDE,
+                      transparent: true,
+                      opacity: 0.0
+                    });
+
+                vertexColorMaterial = new THREE.MeshBasicMaterial( { color:0xffffff, faceColors: THREE.FaceColors, vertexColors: THREE.FaceColors } );
+
+                cubeMaterial = new THREE.MeshBasicMaterial(
+                    { color: 0xffffff, shading: THREE.FlatShading,
+                    vertexColors: THREE.VertexColors } );
+
+
+                views = [
+				{
+					left: 0,
+					bottom: 0,
+					width: 2.0,
+					height: 2.0,
+					background: new THREE.Color().setRGB( 1.0, 1.0, 1.0 ),
+
+					eye: [ 0, 0, 300 ],
+					up: [ 0, 1, 0 ],
+					fov: 60
+//					updateCamera: function ( camera, scene, mouseX, mouseY ) {
+//					  camera.position.x += mouseX * 0.05;
+//					  camera.position.x = Math.max( Math.min( camera.position.x, 2000 ), -2000 );
+//					  camera.lookAt( scene.position );
+//					}
+				},
+				{
+					left: 1.5,
+					bottom: 1.6,
+					width: 0.5,
+					height: 0.5,
+					background: new THREE.Color().setRGB( 1.0, 1.0, 1.0 ),
+					eye: [ -300, 0, 30 ],
+					up: [ 0, 0, 1 ],
+					fov: 60
+
+//					updateCamera: function ( camera, scene, mouseX, mouseY ) {
+//					  camera.position.x -= mouseX * 0.05;
+//					  camera.position.x = Math.max( Math.min( camera.position.x, 2000 ), -2000 );
+//					  camera.lookAt( camera.position.clone().setY( 0 ) );
+//					}
+				}];
+
+
+                for (var ii =  0; ii < views.length; ++ii ) {
+
+					var view = views[ii];
+					camera = new THREE.PerspectiveCamera( view.fov, window.innerWidth / window.innerHeight, 1, 10000 );
+					camera.position.x = view.eye[ 0 ];
+					camera.position.y = view.eye[ 1 ];
+					camera.position.z = view.eye[ 2 ];
+					camera.up.x = view.up[ 0 ];
+					camera.up.y = view.up[ 1 ];
+					camera.up.z = view.up[ 2 ];
+
+                    control = new THREE.TrackballControls( camera );
+                    control.rotateSpeed = 5.0;
+                    control.zoomSpeed = 5;
+                    control.panSpeed = 2;
+                    control.noZoom = false;
+                    control.noPan = false;
+                    control.staticMoving = false;
+                    control.dynamicDampingFactor = 0.3;
+                    control.update();
+                    controls.push(control);
+
+					view.camera = camera;
+
+
+
+				}
+
+				scene = new THREE.Scene();
+
+
+
+
+				var dirLight = new THREE.DirectionalLight( 0xeeeeee );
+                dirLight.castShadow = true;
+                dirLight.shadowDarkness = 0.5;
+
+                dirLight.shadowMapWidth = 1024; // default is 512
+                dirLight.shadowMapHeight = 1024; // default is 512
+
+//                dirLight.shadowCameraVisible = true;
+				dirLight.position.set( -200, 500, 2100 );
+
+
+
+//                var dirLight2 = new THREE.DirectionalLight( 0xeeeeee );
+//				dirLight2.position.set( -500, -500, -500 ).normalize();
+
+                var ambientLight = new THREE.AmbientLight(0x404040);
+//                scene.add(ambientLight);
+
+				scene.add( dirLight );
+				scene.add( dirLight.target );
+
+                      // plane
+              var plane = new THREE.Mesh(new THREE.PlaneGeometry(300, 300),solidmaterial);
+              plane.overdraw = true;
+              plane.receiveShadow = true;
+
+              plane.position = new THREE.Vector3(0,0,-100);
+
+              scene.add(plane);
+
+//
+//                scene.add( dirLight2 );
+//                scene.add( dirLight2.target );
+
+//                    var objtoremove = objects[0];
+//                    scene.remove(objtoremove);
+<!---->
+                    var loader = new THREE.VTKLoader();
+                    loader.addEventListener('load', function (event) {
+
+                        var geometry = event.content;
+                        var mesh = new THREE.Mesh(geometry, solidmaterial);
+                        mesh.castShadow = true;
+
+                        scene.add(mesh);
+                        objects.push(mesh);
+
+                    });
+
+
+
+                    loader.load("lh.pial.vtk");
+
+
+
+                var radius = 8,
+                segments = 16,
+                rings = 16;
+
+            // create a new mesh with
+            // sphere geometry - we will cover
+            // the sphereMaterial next!
+                sphere = new THREE.Mesh(
+
+                  new THREE.SphereGeometry(
+                    radius,
+                    segments,
+                    rings),
+
+                  sphereMaterial);
+
+                scene.add(sphere);
+
+				projector = new THREE.Projector();
+
+				// renderer
+				renderer = new THREE.WebGLRenderer( { antialias: false } );
+				renderer.setClearColor( 0x000000, 1 );
+				renderer.setSize( window.innerWidth, window.innerHeight );
+                renderer.shadowMapEnabled = true;
+                renderer.shadowMapType = THREE.PCFSoftShadowMap; // options are THREE.BasicShadowMap | THREE.PCFShadowMap | THREE.PCFSoftShadowMap
+
+				container = document.createElement( 'div' );
+				document.body.appendChild( container );
+				container.appendChild( renderer.domElement );
+
+				// stats = new Stats();
+				// stats.domElement.style.position = 'absolute';
+				// stats.domElement.style.top = '0px';
+				// container.appendChild( stats.domElement );
+
+				document.addEventListener( 'mousedown', onDocumentMouseDown, false );
+				window.addEventListener( 'resize', onWindowResize, false );
+
+
+
+                $("#loadThickness").click(function(event){
+                    var objtoremove = objects[0];
+                    scene.remove(objtoremove);
+                    loadFile('average_face_values_thickness.csv', 10);
+                });
+
+                $("#loadOriginal").click(function(event){
+
+//                    var objtoremove = objects[0];
+//                    scene.remove(objtoremove);
+
+                    var loader = new THREE.VTKLoader();
+                    loader.addEventListener('load', function (event) {
+
+                        var geometry = event.content;
+                        var mesh = new THREE.Mesh(geometry, solidmaterial);
+                        mesh.castShadow = true;
+
+                        scene.add(mesh);
+                        objects.push(mesh);
+
+                    });
+//                    console.log()
+
+                    sphere.material.opacity = 0.8;
+                    loader.load("lh.pial.vtk");
+
+                })
+
+                $("#loadCurvature").click(function(event){
+                    var objtoremove = objects[0];
+                    scene.remove(objtoremove);
+                    loadFile('curvature-neg-250.csv', 10);
+                });
+
+
+                $("#loadTravel").click(function(event){
+                    var objtoremove = objects[0];
+                    scene.remove(objtoremove);
+                    loadFile('travel-3000.csv', 10);
+                });
+
+                $("#loadLabelShapes").click(function(event){
+                    loadLabelShapes();
+                });
+
+
+
+                $("#showSelectedLabel").click(function(event){
+
+                    var objtoremove = objects[0];
+                    scene.remove(objtoremove);
+
+                    var loader = new THREE.VTKLoader();
+                    loader.addEventListener('load', function (event) {
+
+                        var geometry = event.content;
+                        var mesh = new THREE.Mesh(geometry, solidmaterial);
+                        mesh.castShadow = true;
+
+                        scene.add(mesh);
+                        objects.push(mesh);
+
+                    });
+                    console.log()
+                    loader.load("fold11.vtk");
+
+                })
+
+
+			}
+
+
+
+
+
+            function onDocumentMouseDown( event ) {
+
+				event.preventDefault();
+
+				var vector = new THREE.Vector3( ( (event.clientX)  / window.innerWidth ) * 2 - 1, - ( (event.clientY - 40) / window.innerHeight ) * 2 + 1, 0.5 );
+
+				projector.unprojectVector( vector, views[0].camera );
+
+				var raycaster = new THREE.Raycaster( views[0].camera.position , vector.sub( views[0].camera.position  ).normalize() );
+				var intersects = raycaster.intersectObjects( objects );
+				if ( intersects.length > 0 ) {
+
+                    sphere.material.opacity = 0.8;
+                    $("#lastClick").text('Label ' + vertexmap[intersects[0].face['a']]);
+                    currentLabel = vertexmap[intersects[0].face['a']];
+
+                    console.log(geneLabels[parseInt(bestLabel[currentLabel])])
+                    console.log(bestValue[currentLabel])
+
+                    if(bestValue[currentLabel])
+                    {
+                        $("#genename").text(geneLabels[parseInt(bestLabel[currentLabel])]);
+                        $("#genevalue").text(bestValue[currentLabel]);
+
+                    }
+                    else
+                    {
+                        $("#genename").text('');
+                        $("#genevalue").text('');
+
+                    }
+
+
+
+//
+
+
+
+//                    console.log(currentLabel)
+
+                    sphere.position = intersects[0].point;
+
+
+//                   console.log(intersects[0].point);
+				}
+            }
+
+			function onWindowResize() {
+				camera.aspect = window.innerWidth / window.innerHeight;
+				camera.updateProjectionMatrix();
+				renderer.setSize( window.innerWidth, window.innerHeight );
+//				controls.handleResize();
+                for (var ii = 0; ii < controls.length; ++ii)
+                {
+                    control = controls[ii];
+                    control.handleResize();
+                }
+
+			}
+
+            function animate() {
+
+				render();
+				// stats.update();
+				requestAnimationFrame( animate );
+			}
+
+            function updateSize() {
+
+				if ( windowWidth != window.innerWidth || windowHeight != window.innerHeight ) {
+
+					windowWidth  = window.innerWidth;
+					windowHeight = window.innerHeight;
+					renderer.setSize ( windowWidth, windowHeight );
+
+				}
+
+			}
+
+			function render() {
+
+				updateSize();
+
+				for (var ii = 0; ii < controls.length; ++ii)
+                {
+                    if(ii==0)
+                    {
+                        control = controls[ii];
+                        control.update();
+                    }
+                }
+
+				for ( var ii = 0; ii < views.length; ++ii ) {
+
+					view = views[ii];
+					camera = view.camera;
+
+					var left   = Math.floor( windowWidth  * view.left );
+					var bottom = Math.floor( windowHeight * view.bottom );
+					var width  = Math.floor( windowWidth  * view.width );
+					var height = Math.floor( windowHeight * view.height );
+					renderer.setViewport( left, bottom, width, height );
+					renderer.setScissor( left, bottom, width, height );
+					renderer.enableScissorTest ( true );
+					renderer.setClearColor( view.background );
+
+					camera.aspect = width / height;
+
+                    if(ii==0) {
+                        camera.updateProjectionMatrix();
+                    }
+
+					renderer.render( scene, camera );
+				}
+
+			}
+
+//
+//			function animate() {
+//
+//				requestAnimationFrame( animate );
+//				controls.update();
+//
+//				renderer.render( scene, camera );
+//
+//                stats.update();
+//
+//                for ( var ii = 0; ii < views.length; ++ii ) {
+//
+//					view = views[ii];
+//					camera = view.camera;
+//
+//					view.updateCamera( camera, scene, mouseX, mouseY );
+//
+//					var left   = Math.floor( windowWidth  * view.left );
+//					var bottom = Math.floor( windowHeight * view.bottom );
+//					var width  = Math.floor( windowWidth  * view.width );
+//					var height = Math.floor( windowHeight * view.height );
+//					renderer.setViewport( left, bottom, width, height );
+//					renderer.setScissor( left, bottom, width, height );
+//					renderer.enableScissorTest ( true );
+//					renderer.setClearColor( view.background );
+//
+//					camera.aspect = width / height;
+//					camera.updateProjectionMatrix();
+//
+//					renderer.render( scene, camera );
+//				}
+//
+//			}
+
+		</script>
+
+	</body>
+</html>
+

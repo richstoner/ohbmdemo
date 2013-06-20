@@ -1,0 +1,25 @@
+
+
+    $("#showSelectedLabel").click(function (event) {
+
+        var objtoremove = objects[0];
+        scene.remove(objtoremove);
+
+        var loader = new THREE.VTKLoader();
+        loader.addEventListener('load', function (event) {
+
+
+            var geometry = event.content;
+            var mesh = new THREE.Mesh(geometry, solidmaterial);
+            mesh.castShadow = true;
+
+            scene.add(mesh);
+            objects.push(mesh);
+
+        console.log('')
+
+        });
+        loader.load("labels_mean_curvature12.vtk");
+
+
+    });
